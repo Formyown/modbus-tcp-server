@@ -105,12 +105,27 @@ async fn server_start(config: ServerConfig, state: State<'_, AppState>) -> Resul
 
     let task = tauri::async_runtime::spawn(async move {
         let base_service = ModbusService::new(store, app.clone(), unit_id);
+        let status_emitter = Arc::new({
+            let app = app.clone();
+            let server_state = server_state.clone();
+            move || {
+                if let Ok(state) = server_state.lock() {
+                    let status = build_status(&state);
+                    let _ = app.emit("modbus://status", status);
+                }
+            }
+        });
         let on_connected = move |stream, _socket_addr| {
             let base_service = base_service.clone();
             let connections = connections.clone();
+            let status_emitter = status_emitter.clone();
             async move {
                 connections.fetch_add(1, Ordering::SeqCst);
-                Ok(Some((ConnectionService::new(base_service, connections), stream)))
+                (status_emitter)();
+                Ok(Some((
+                    ConnectionService::new(base_service, connections, status_emitter),
+                    stream,
+                )))
             }
         };
 

@@ -116,7 +116,10 @@ async function setupWindowState() {
     <header class="toolbar">
       <div class="title-block">
         <h1>Modbus TCP Server</h1>
-        <span>仿真 / 测试 / 编程 控制面板</span>
+        <div class="title-meta">
+          <span class="meta-label">Connections / 连接数</span>
+          <span class="meta-value">{{ store.status.connections }}</span>
+        </div>
       </div>
       <ConnectionPanel />
     </header>

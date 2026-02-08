@@ -28,9 +28,8 @@ function clampRegister(value: number) {
   return Math.min(65535, Math.max(0, Math.round(value)));
 }
 
-function onToggle(address: number, event: Event) {
-  const target = event.target as HTMLInputElement;
-  store.setValue(address, target.checked);
+function onToggle(address: number, nextValue: boolean) {
+  store.setValue(address, nextValue);
 }
 
 function onNumberChange(address: number, event: Event) {
@@ -55,11 +54,14 @@ function onNumberChange(address: number, event: Event) {
         <tbody>
           <tr v-for="row in rows" :key="row.address">
             <td>{{ formatAddress(row.address) }}</td>
-            <td v-if="isBitArea">
-              <input
-                type="checkbox"
-                :checked="row.value !== 0"
-                @change="onToggle(row.address, $event)"
+            <td v-if="isBitArea" class="bit-cell">
+              <button
+                type="button"
+                class="bit-led"
+                :class="{ on: row.value !== 0 }"
+                :aria-pressed="row.value !== 0"
+                :aria-label="row.value !== 0 ? 'On' : 'Off'"
+                @click="onToggle(row.address, row.value === 0)"
               />
             </td>
             <td v-else>

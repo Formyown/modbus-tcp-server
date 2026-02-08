@@ -61,17 +61,27 @@ impl ModbusService {
 pub struct ConnectionService {
     inner: ModbusService,
     connections: Arc<AtomicUsize>,
+    on_status_update: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl ConnectionService {
-    pub fn new(inner: ModbusService, connections: Arc<AtomicUsize>) -> Self {
-        Self { inner, connections }
+    pub fn new(
+        inner: ModbusService,
+        connections: Arc<AtomicUsize>,
+        on_status_update: Arc<dyn Fn() + Send + Sync>,
+    ) -> Self {
+        Self {
+            inner,
+            connections,
+            on_status_update,
+        }
     }
 }
 
 impl Drop for ConnectionService {
     fn drop(&mut self) {
         self.connections.fetch_sub(1, Ordering::SeqCst);
+        (self.on_status_update)();
     }
 }
 

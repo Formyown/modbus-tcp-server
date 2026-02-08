@@ -77,6 +77,23 @@ body {
   font-size: 12px;
 }
 
+.title-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.title-meta .meta-value {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  background: #f7f9fb;
+  color: #133246;
+  font-weight: 600;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: 160px 1fr 230px;
@@ -255,9 +272,35 @@ button.secondary:disabled {
   font-size: 12px;
 }
 
-.register-table input[type="checkbox"] {
-  width: 16px;
+.register-table td.bit-cell {
+  text-align: left;
+}
+
+.register-table .bit-led {
+  width: 28px;
   height: 16px;
+  border-radius: 3px;
+  border: 1px solid #9aa4af;
+  background: #c5cbd2;
+  display: inline-block;
+  padding: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.register-table .bit-led.on {
+  background: #3bbf6a;
+  border-color: #2f9a55;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 0 6px rgba(59, 191, 106, 0.55);
+}
+
+.register-table .bit-led:focus-visible {
+  outline: 2px solid #7aa6d8;
+  outline-offset: 2px;
 }
 
 .side-actions {
