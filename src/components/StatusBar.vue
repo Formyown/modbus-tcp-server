@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useModbusStore } from "../stores/modbus";
+import { useI18n } from "../lib/i18n";
 
 const store = useModbusStore();
+const { t } = useI18n();
 
-const runningLabel = computed(() => (store.status.running ? "Running / 运行中" : "Stopped / 已停止"));
-const bindLabel = computed(() => store.status.bind || "未绑定");
+const runningLabel = computed(() =>
+  store.status.running ? t("status.running") : t("status.stopped")
+);
+const bindLabel = computed(() => store.status.bind || t("status.unbound"));
 </script>
 
 <template>
@@ -14,8 +18,8 @@ const bindLabel = computed(() => store.status.bind || "未绑定");
       <div class="status-dot" :class="{ running: store.status.running }"></div>
       <span>{{ runningLabel }}</span>
     </div>
-    <div>Bind: {{ bindLabel }}</div>
-    <div>Connections: {{ store.status.connections }}</div>
+    <div>{{ t("statusBar.bind") }}: {{ bindLabel }}</div>
+    <div>{{ t("statusBar.connections") }}: {{ store.status.connections }}</div>
     <div v-if="store.status.last_error" class="status-error">
       {{ store.status.last_error }}
     </div>

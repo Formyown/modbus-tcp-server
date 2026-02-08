@@ -3,7 +3,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tokio_modbus::server::tcp::Server;
@@ -48,6 +49,8 @@ struct ServerConfig {
     port: u16,
     unit_id: u8,
 }
+
+const MENU_OPEN_SETTINGS: &str = "open_settings";
 
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -390,6 +393,51 @@ fn build_status(state: &ServerRuntimeState) -> ServerStatus {
     }
 }
 
+fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let menu = Menu::new(app)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let app_name = app.package_info().name.clone();
+        let preferences = MenuItem::with_id(
+            app,
+            MENU_OPEN_SETTINGS,
+            "Preferences...",
+            true,
+            Some("CmdOrCtrl+,"),
+        )?;
+        let app_menu = Submenu::with_items(
+            app,
+            app_name,
+            true,
+            &[
+                &preferences,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::quit(app, None)?,
+            ],
+        )?;
+        menu.append(&app_menu)?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let settings = MenuItem::with_id(app, MENU_OPEN_SETTINGS, "Settings", true, None)?;
+        let file_menu = Submenu::with_items(
+            app,
+            "File",
+            true,
+            &[
+                &settings,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::quit(app, Some("Exit"))?,
+            ],
+        )?;
+        menu.append(&file_menu)?;
+    }
+
+    Ok(menu)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -403,6 +451,19 @@ pub fn run() {
                 app: app.handle().clone(),
                 store,
                 server,
+            });
+            let menu = build_menu(app.handle())?;
+            app.handle().set_menu(menu)?;
+            let app_handle = app.handle().clone();
+            app.handle().on_menu_event(move |app, event| {
+                if event.id() == MENU_OPEN_SETTINGS {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("app://open-settings", ());
+                    }
+                }
+                if event.id() == "quit" {
+                    app_handle.exit(0);
+                }
             });
             Ok(())
         })

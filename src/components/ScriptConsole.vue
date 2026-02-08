@@ -6,6 +6,7 @@ import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, watch as watchFs, writeTextFile } from "@tauri-apps/plugin-fs";
 import exampleContent from "../assets/examples/modbus_script_example.js?raw";
 import { monaco } from "../lib/monaco";
+import { useI18n } from "../lib/i18n";
 
 type ConsoleTab = "script" | "logs";
 
@@ -44,6 +45,7 @@ const externalDiskContent = ref<string | null>(null);
 const isSettingValue = ref(false);
 const isRunning = ref(false);
 const followLogs = ref(true);
+const { t } = useI18n();
 
 const scriptCleanups: ScriptCleanup[] = [];
 let stopResolver: (() => void) | null = null;
@@ -57,7 +59,9 @@ const resizeState = {
   startHeight: DEFAULT_PANEL_HEIGHT,
 };
 
-const collapseLabel = computed(() => (collapsed.value ? "Expand / 展开" : "Collapse / 收起"));
+const collapseLabel = computed(() =>
+  collapsed.value ? t("console.expand") : t("console.collapse")
+);
 const panelStyle = computed(() => {
   const height = collapsed.value ? COLLAPSED_HEIGHT : panelHeight.value;
   return { height: `${height}px` };
@@ -66,7 +70,7 @@ const fileLabel = computed(() => {
   const name = currentFilePath.value ? basename(currentFilePath.value) : "example.js";
   return dirty.value ? `${name} •` : name;
 });
-const filePathLabel = computed(() => currentFilePath.value ?? "Unsaved example (use Save As)");
+const filePathLabel = computed(() => currentFilePath.value ?? t("console.fileUnsaved"));
 
 watch([collapsed, activeTab], async () => {
   await nextTick();
@@ -110,7 +114,7 @@ function toggleFollowLogs() {
 
 async function saveLogs() {
   if (!logs.value.length) {
-    appendLog("No logs to save.");
+    appendLog(t("console.log.noLogsToSave"));
     return;
   }
   const selected = await save({
@@ -123,10 +127,10 @@ async function saveLogs() {
   try {
     const content = `${logs.value.join("\n")}\n`;
     await writeTextFile(selected, content);
-    appendLog(`Saved logs to ${selected}`);
+    appendLog(t("console.log.savedLogs", { path: selected }));
   } catch (error) {
     console.error(error);
-    appendLog("Failed to save logs.");
+    appendLog(t("console.log.failedSaveLogs"));
   }
 }
 
@@ -185,12 +189,12 @@ function runSafeCallback(handler: (...args: unknown[]) => unknown, context: stri
     if (result && typeof (result as Promise<unknown>).then === "function") {
       void (result as Promise<unknown>).catch((error) => {
         console.error(`${context} failed`, error);
-        appendLog(`${context} error: ${String(error)}`);
+        appendLog(t("console.log.callbackError", { context, error: String(error) }));
       });
     }
   } catch (error) {
     console.error(`${context} failed`, error);
-    appendLog(`${context} error: ${String(error)}`);
+    appendLog(t("console.log.callbackError", { context, error: String(error) }));
   }
 }
 
@@ -364,7 +368,7 @@ function onChange(handler: (payload: UpdatePayload) => void) {
     })
     .catch((error) => {
       console.error("Failed to listen for updates", error);
-      appendLog("Failed to register onChange listener.");
+      appendLog(t("console.log.registerListenerFailed"));
     });
 
   return () => {
@@ -377,7 +381,7 @@ function stopScript() {
   if (!isRunning.value) {
     return;
   }
-  appendLog("Stop requested.");
+  appendLog(t("console.log.stopRequested"));
   stopRequested = true;
   stopController?.abort();
   resolveStop();
@@ -386,7 +390,7 @@ function stopScript() {
 
 async function runScript() {
   if (isRunning.value) {
-    appendLog("Script is already running.");
+    appendLog(t("console.log.alreadyRunning"));
     return;
   }
 
@@ -416,7 +420,7 @@ async function runScript() {
   );
 
   isRunning.value = true;
-  appendLog("Script started.");
+  appendLog(t("console.log.started"));
   let keepAlive = true;
   try {
     await runner(
@@ -430,18 +434,18 @@ async function runScript() {
       scriptSetInterval,
       sleep
     );
-    appendLog("Script finished.");
+    appendLog(t("console.log.finished"));
   } catch (error) {
     if (isStopError(error) || stopRequested) {
-      appendLog("Script stopped.");
+      appendLog(t("console.log.stopped"));
     } else {
       keepAlive = false;
       console.error("Script execution failed", error);
-      appendLog(`Script error: ${String(error)}`);
+      appendLog(t("console.log.error", { error: String(error) }));
     }
   } finally {
     if (keepAlive && !stopRequested) {
-      appendLog("Script idle. Waiting for stop.");
+      appendLog(t("console.log.idle"));
       try {
         await stopPromise;
       } catch (error) {
@@ -636,13 +640,13 @@ async function confirmDiscard() {
     return true;
   }
   try {
-    return await confirm("Discard unsaved changes?", {
-      title: "Unsaved changes",
+    return await confirm(t("console.confirm.discard"), {
+      title: t("console.confirm.unsavedTitle"),
       kind: "warning",
     });
   } catch (error) {
     console.error(error);
-    return window.confirm("Discard unsaved changes?");
+    return window.confirm(t("console.confirm.discard"));
   }
 }
 
@@ -665,7 +669,7 @@ async function startFileWatch(path: string) {
     );
   } catch (error) {
     console.error(error);
-    appendLog("Watch failed.");
+    appendLog(t("console.log.watchFailed"));
   }
 }
 
@@ -684,10 +688,10 @@ async function handleExternalChange() {
     }
     externalDiskContent.value = diskContent;
     externalChangePending.value = true;
-    appendLog("Detected external change.");
+    appendLog(t("console.log.externalChange"));
   } catch (error) {
     console.error(error);
-    appendLog("Failed to read file changes.");
+    appendLog(t("console.log.failedReadChanges"));
   }
 }
 
@@ -698,12 +702,12 @@ async function reloadFromDisk() {
   updateEditorValue(externalDiskContent.value, true);
   externalDiskContent.value = null;
   externalChangePending.value = false;
-  appendLog("Reloaded from disk.");
+  appendLog(t("console.log.reloaded"));
 }
 
 function keepLocal() {
   externalChangePending.value = false;
-  appendLog("Kept local changes.");
+  appendLog(t("console.log.keptLocal"));
 }
 
 async function openScript() {
@@ -725,10 +729,10 @@ async function openScript() {
     externalDiskContent.value = null;
     updateEditorValue(content, true);
     await startFileWatch(selected);
-    appendLog(`Opened ${selected}`);
+    appendLog(t("console.log.opened", { path: selected }));
   } catch (error) {
     console.error(error);
-    appendLog("Failed to open file.");
+    appendLog(t("console.log.failedOpen"));
   }
 }
 
@@ -741,10 +745,10 @@ async function saveScript() {
     await writeTextFile(currentFilePath.value, scriptContent.value);
     lastSavedContent.value = scriptContent.value;
     dirty.value = false;
-    appendLog(`Saved ${currentFilePath.value}`);
+    appendLog(t("console.log.saved", { path: currentFilePath.value }));
   } catch (error) {
     console.error(error);
-    appendLog("Failed to save file.");
+    appendLog(t("console.log.failedSave"));
   }
 }
 
@@ -764,10 +768,10 @@ async function saveScriptAs() {
     externalChangePending.value = false;
     externalDiskContent.value = null;
     await startFileWatch(selected);
-    appendLog(`Saved ${selected}`);
+    appendLog(t("console.log.saved", { path: selected }));
   } catch (error) {
     console.error(error);
-    appendLog("Failed to save file.");
+    appendLog(t("console.log.failedSave"));
   }
 }
 
@@ -780,7 +784,7 @@ async function loadExample() {
   externalDiskContent.value = null;
   updateEditorValue(exampleContent, true);
   await stopFileWatch();
-  appendLog("Loaded example template.");
+  appendLog(t("console.log.loadedExample"));
 }
 
 onMounted(() => {
@@ -852,7 +856,7 @@ onBeforeUnmount(async () => {
             <path d="M12.5 6.5l3 3-3 3" />
             <path d="M9.5 6l1 8" />
           </svg>
-          Script Editor / 脚本编辑
+          {{ t("console.scriptEditor") }}
         </button>
         <button
           class="console-tab"
@@ -865,11 +869,11 @@ onBeforeUnmount(async () => {
             <path d="M6 13.5h5" />
             <path d="M4 4.5h12v11H4z" />
           </svg>
-          Logs / 运行日志
+          {{ t("console.logs") }}
         </button>
       </div>
       <div class="console-actions">
-        <span v-if="isRunning" class="console-running-chip">Running / 运行中</span>
+        <span v-if="isRunning" class="console-running-chip">{{ t("console.running") }}</span>
         <button
           class="secondary collapse-toggle"
           @click="toggleCollapse"
@@ -892,76 +896,90 @@ onBeforeUnmount(async () => {
           <div class="console-file-path">{{ filePathLabel }}</div>
         </div>
         <div v-if="externalChangePending" class="console-banner">
-          <span>File changed on disk / 文件已更新</span>
+          <span>{{ t("console.fileChanged") }}</span>
           <div class="console-banner-actions">
-            <button class="secondary" @click="reloadFromDisk">Reload</button>
-            <button class="secondary" @click="keepLocal">Keep</button>
+            <button class="secondary" @click="reloadFromDisk">{{ t("console.reload") }}</button>
+            <button class="secondary" @click="keepLocal">{{ t("console.keep") }}</button>
           </div>
         </div>
         <div ref="editorHost" class="console-editor"></div>
         <div class="console-toolbar">
-          <button class="secondary" @click="openScript" aria-label="Open" title="Open">
+          <button
+            class="secondary"
+            @click="openScript"
+            :aria-label="t('console.open')"
+            :title="t('console.open')"
+          >
             <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M2.5 8h5l1.6 2h8.4v5.5a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z" />
               <path d="M2.5 8V5.5a2 2 0 0 1 2-2h3l1.5 2" />
             </svg>
-            <span>Open</span>
+            <span>{{ t("console.open") }}</span>
           </button>
           <button
             class="secondary"
             @click="saveScript"
             :disabled="!dirty"
-            aria-label="Save"
-            title="Save"
+            :aria-label="t('console.save')"
+            :title="t('console.save')"
           >
             <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M5.5 3.5h8l3 3v9.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 15.5V5A1.5 1.5 0 0 1 5.5 3.5z" />
               <path d="M7 3.5v5h6v-5" />
               <path d="M7 13h6" />
             </svg>
-            <span>Save</span>
+            <span>{{ t("console.save") }}</span>
           </button>
-          <button class="secondary" @click="saveScriptAs" aria-label="Save As" title="Save As">
+          <button
+            class="secondary"
+            @click="saveScriptAs"
+            :aria-label="t('console.saveAs')"
+            :title="t('console.saveAs')"
+          >
             <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M5.5 3.5h8l3 3v9.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 15.5V5A1.5 1.5 0 0 1 5.5 3.5z" />
               <path d="M7 3.5v5h6v-5" />
               <path d="M10 11v4" />
               <path d="M8 13h4" />
             </svg>
-            <span>Save As</span>
+            <span>{{ t("console.saveAs") }}</span>
           </button>
-          <button class="secondary" @click="loadExample" aria-label="Example" title="Example">
+          <button
+            class="secondary"
+            @click="loadExample"
+            :aria-label="t('console.example')"
+            :title="t('console.example')"
+          >
             <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M6 3.5h6l4 4v8.5a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 5 15.5V5A1.5 1.5 0 0 1 6 3.5z" />
               <path d="M12 3.5v4h4" />
               <path d="M8 11.5l-2 2 2 2" />
               <path d="M12 11.5l2 2-2 2" />
             </svg>
-            <span>Example</span>
+            <span>{{ t("console.example") }}</span>
           </button>
           <button
             class="primary script-run"
             :class="{ danger: isRunning }"
-            :aria-label="isRunning ? 'Stop / 停止' : 'Run / 运行'"
-            :title="isRunning ? 'Stop / 停止' : 'Run / 运行'"
+            :aria-label="isRunning ? t('console.stop') : t('console.run')"
+            :title="isRunning ? t('console.stop') : t('console.run')"
             @click="isRunning ? stopScript() : runScript()"
           >
             <svg class="button-icon solid" viewBox="0 0 20 20" aria-hidden="true">
               <path v-if="isRunning" d="M5 5h10v10H5z" />
               <path v-else d="M6 4.5l8.5 5-8.5 5z" />
             </svg>
-            <span>{{ isRunning ? "Stop / 停止" : "Run / 运行" }}</span>
+            <span>{{ isRunning ? t("console.stop") : t("console.run") }}</span>
           </button>
         </div>
         <div class="console-hint">
-          Tip: helpers: writeCoils / writeDiscreteInputs / writeHoldingRegs / writeInputRegs / onChange /
-          log / setTimeout / setInterval / sleep.
+          {{ t("console.tipHelpers") }}
         </div>
       </div>
 
       <div v-show="activeTab === 'logs'" class="console-pane">
         <div ref="logBox" class="console-log-box">
-          <div v-if="!logs.length" class="console-empty">No logs yet.</div>
+          <div v-if="!logs.length" class="console-empty">{{ t("console.noLogs") }}</div>
           <div v-else class="console-log-list">
             <div v-for="(line, index) in logs" :key="index" class="console-log-line">
               {{ line }}
@@ -973,8 +991,8 @@ onBeforeUnmount(async () => {
             class="secondary icon-only"
             :class="{ active: followLogs }"
             @click="toggleFollowLogs"
-            aria-label="Follow logs / 跟踪日志"
-            title="Follow logs / 跟踪日志"
+            :aria-label="t('console.followLogs')"
+            :title="t('console.followLogs')"
           >
             <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M10 3v10" />
@@ -986,8 +1004,8 @@ onBeforeUnmount(async () => {
             class="secondary icon-only"
             @click="saveLogs"
             :disabled="!logs.length"
-            aria-label="Save logs / 保存日志"
-            title="Save logs / 保存日志"
+            :aria-label="t('console.saveLogs')"
+            :title="t('console.saveLogs')"
           >
             <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M5.5 3.5h8l3 3v9.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 15.5V5A1.5 1.5 0 0 1 5.5 3.5z" />
@@ -999,8 +1017,8 @@ onBeforeUnmount(async () => {
             class="secondary"
             @click="clearLogs"
             :disabled="!logs.length"
-            aria-label="Clear / 清空"
-            title="Clear / 清空"
+            :aria-label="t('console.clear')"
+            :title="t('console.clear')"
           >
             <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M4.5 6.5h11" />
@@ -1009,10 +1027,10 @@ onBeforeUnmount(async () => {
               <path d="M12.5 6.5v8" />
               <path d="M5.5 6.5v8.5a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5V6.5" />
             </svg>
-            <span>Clear / 清空</span>
+            <span>{{ t("console.clear") }}</span>
           </button>
         </div>
-        <div class="console-hint">Logs will show script runs, register writes, and connection events.</div>
+        <div class="console-hint">{{ t("console.logsHint") }}</div>
       </div>
     </div>
   </section>

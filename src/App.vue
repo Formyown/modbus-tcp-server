@@ -1,34 +1,64 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   getCurrentWindow,
   LogicalSize,
   type PhysicalSize,
   type Window as TauriWindow,
 } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import ConnectionPanel from "./components/ConnectionPanel.vue";
 import RegisterTabs from "./components/RegisterTabs.vue";
 import RegisterTable from "./components/RegisterTable.vue";
 import SidePanel from "./components/SidePanel.vue";
 import ScriptConsole from "./components/ScriptConsole.vue";
+import SettingsModal from "./components/SettingsModal.vue";
 import { useModbusStore } from "./stores/modbus";
+import { useSettingsStore } from "./stores/settings";
+import { useI18n } from "./lib/i18n";
 
 const store = useModbusStore();
+const settingsStore = useSettingsStore();
+const { t } = useI18n();
 const WINDOW_SIZE_STORAGE_KEY = "modbus.windowSize";
 const WINDOW_RESIZE_DEBOUNCE_MS = 200;
 let resizeTimeout: number | null = null;
 let unlistenResize: (() => void) | null = null;
+let unlistenSettings: (() => void) | null = null;
+const isSettingsOpen = ref(false);
 
 onMounted(() => {
+  void settingsStore.initialize();
   store.initialize();
   void setupWindowState();
+  void listen("app://open-settings", () => {
+    isSettingsOpen.value = true;
+  })
+    .then((unlisten) => {
+      unlistenSettings = unlisten;
+    })
+    .catch((error) => {
+      console.warn("Failed to listen for settings event", error);
+    });
 });
+
+watch(
+  () => t("app.title"),
+  (value) => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    document.title = value;
+  },
+  { immediate: true }
+);
 
 onBeforeUnmount(() => {
   if (resizeTimeout != null) {
     window.clearTimeout(resizeTimeout);
   }
   unlistenResize?.();
+  unlistenSettings?.();
 });
 
 function loadWindowSize() {
@@ -115,9 +145,9 @@ async function setupWindowState() {
   <div class="app-shell">
     <header class="toolbar">
       <div class="title-block">
-        <h1>Modbus TCP Server</h1>
+        <h1>{{ t("app.title") }}</h1>
         <div class="title-meta">
-          <span class="meta-label">Connections / 连接数</span>
+          <span class="meta-label">{{ t("app.connections") }}</span>
           <span class="meta-value">{{ store.status.connections }}</span>
         </div>
       </div>
@@ -131,5 +161,6 @@ async function setupWindowState() {
     </section>
 
     <ScriptConsole />
+    <SettingsModal v-model="isSettingsOpen" />
   </div>
 </template>

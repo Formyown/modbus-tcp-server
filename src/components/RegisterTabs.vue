@@ -1,19 +1,22 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useModbusStore, type DataArea } from "../stores/modbus";
+import { useI18n } from "../lib/i18n";
 
 const store = useModbusStore();
+const { t } = useI18n();
 
-const tabs: Array<{ area: DataArea; label: string; hint: string }> = [
-  { area: "coils", label: "Coils", hint: "线圈 / 可写" },
-  { area: "discrete", label: "Discrete", hint: "离散输入" },
-  { area: "input", label: "Input Reg", hint: "输入寄存器" },
-  { area: "holding", label: "Holding Reg", hint: "保持寄存器" },
-];
+const tabs = computed<Array<{ area: DataArea; label: string; hint: string }>>(() => [
+  { area: "coils", label: t("dataAreas.coils"), hint: t("dataAreas.coilsHint") },
+  { area: "discrete", label: t("dataAreas.discrete"), hint: t("dataAreas.discreteHint") },
+  { area: "input", label: t("dataAreas.input"), hint: t("dataAreas.inputHint") },
+  { area: "holding", label: t("dataAreas.holding"), hint: t("dataAreas.holdingHint") },
+]);
 </script>
 
 <template>
   <div class="panel">
-    <div class="panel-title">Data Areas</div>
+    <div class="panel-title">{{ t("dataAreas.title") }}</div>
     <div class="tabs">
       <button
         v-for="tab in tabs"

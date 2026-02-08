@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useModbusStore, type DataArea } from "../stores/modbus";
+import { useI18n } from "../lib/i18n";
 
 const store = useModbusStore();
+const { t } = useI18n();
 
 const rows = computed(() => store.rows);
 const isBitArea = computed(() => store.isBitArea);
+const onLabel = computed(() => t("registers.on"));
+const offLabel = computed(() => t("registers.off"));
 
 const ADDRESS_BASES: Record<DataArea, number> = {
   coils: 1,
@@ -42,13 +46,13 @@ function onNumberChange(address: number, event: Event) {
 
 <template>
   <div class="panel table-panel">
-    <div class="panel-title">Registers</div>
+    <div class="panel-title">{{ t("registers.title") }}</div>
     <div class="table-scroll">
       <table class="register-table">
         <thead>
           <tr>
-            <th style="width: 140px;">Modbus Address</th>
-            <th>Value</th>
+            <th style="width: 140px;">{{ t("registers.modbusAddress") }}</th>
+            <th>{{ t("registers.value") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -60,7 +64,7 @@ function onNumberChange(address: number, event: Event) {
                 class="bit-led"
                 :class="{ on: row.value !== 0 }"
                 :aria-pressed="row.value !== 0"
-                :aria-label="row.value !== 0 ? 'On' : 'Off'"
+                :aria-label="row.value !== 0 ? onLabel : offLabel"
                 @click="onToggle(row.address, row.value === 0)"
               />
             </td>

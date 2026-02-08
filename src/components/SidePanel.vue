@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useModbusStore } from "../stores/modbus";
+import { useI18n } from "../lib/i18n";
 
 const store = useModbusStore();
+const { t } = useI18n();
 const startAddress = ref(store.startAddress);
 const pageSize = ref(store.pageSize);
 
@@ -27,27 +29,27 @@ function applyRange() {
 
 <template>
   <div class="panel navigation-panel">
-    <div class="panel-title">Navigation</div>
+    <div class="panel-title">{{ t("navigation.title") }}</div>
     <div class="field">
-      <label>Start Address / 起始地址</label>
+      <label>{{ t("navigation.startAddress") }}</label>
       <input v-model.number="startAddress" type="number" min="0" />
     </div>
     <div class="field">
-      <label>Display Length / 显示长度</label>
+      <label>{{ t("navigation.displayLength") }}</label>
       <input v-model.number="pageSize" type="number" min="1" max="100" />
     </div>
     <div class="side-actions">
-      <button class="secondary" @click="store.prevPage">Prev / 上一页</button>
-      <button class="secondary" @click="store.nextPage">Next / 下一页</button>
+      <button class="secondary" @click="store.prevPage">{{ t("navigation.prev") }}</button>
+      <button class="secondary" @click="store.nextPage">{{ t("navigation.next") }}</button>
     </div>
     <div class="side-actions">
-      <button class="primary" @click="applyRange">Apply / 跳转</button>
-      <button class="secondary" @click="store.fetchSnapshot">Refresh / 刷新</button>
+      <button class="primary" @click="applyRange">{{ t("navigation.apply") }}</button>
+      <button class="secondary" @click="store.fetchSnapshot">{{ t("navigation.refresh") }}</button>
     </div>
     <div class="field">
-      <label>Tips / 提示</label>
+      <label>{{ t("navigation.tips") }}</label>
       <div style="font-size: 12px; color: var(--text-muted);">
-        端口 502 需要管理员权限，建议使用 1502 进行测试。
+        {{ t("navigation.portTip") }}
       </div>
     </div>
   </div>
