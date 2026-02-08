@@ -219,6 +219,16 @@ button.primary {
   color: #fff;
 }
 
+button.primary.script-run {
+  background: linear-gradient(135deg, #2ea043 0%, #1f7a34 100%);
+  border-color: #1a6a2d;
+}
+
+button.primary.danger {
+  background: linear-gradient(135deg, #d9534f 0%, #c43d3d 100%);
+  border-color: #b33734;
+}
+
 button.primary:disabled,
 button.secondary:disabled {
   opacity: 0.5;
@@ -453,6 +463,20 @@ button.secondary:disabled {
   gap: 8px;
 }
 
+.console-running-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(46, 160, 67, 0.12);
+  color: #1f5d2b;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
 button.collapse-toggle {
   display: inline-flex;
   align-items: center;
@@ -544,6 +568,42 @@ button.collapse-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+button.icon-only {
+  padding: 6px;
+}
+
+button.icon-only .button-icon {
+  margin: 0;
+}
+
+button.icon-only.active {
+  border-color: var(--accent-strong);
+  color: #174a6b;
+  background: rgba(44, 111, 159, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(44, 111, 159, 0.25);
+  animation: follow-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.icon-only.active {
+    animation: none;
+  }
+}
+
+@keyframes follow-pulse {
+  0% {
+    box-shadow: inset 0 0 0 1px rgba(44, 111, 159, 0.25);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgba(44, 111, 159, 0.35),
+      0 0 0 4px rgba(44, 111, 159, 0.12);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(44, 111, 159, 0.25);
+  }
 }
 
 .button-icon {

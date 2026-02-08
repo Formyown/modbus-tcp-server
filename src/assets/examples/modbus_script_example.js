@@ -1,27 +1,32 @@
 // Modbus TCP Script Example
 // ---------------------------------------------
-// This is a starter template for automation logic.
-// Replace the pseudo APIs with your actual runtime helpers.
+// Available helpers:
+// writeCoils, writeDiscreteInputs, writeHoldingRegs, writeInputRegs, onChange, log, setTimeout,
+// setInterval, sleep
 
-// 1) Connect to server
-// const client = connect({ host: "127.0.0.1", port: 1502, unitId: 1 });
+// Listen to coils updates and mirror them to discrete inputs (DI)
+const stop = onChange(async ({ area, offset, values }) => {
+  if (area !== "coils") {
+    return;
+  }
 
-// 2) Write single register
-// await client.writeHoldingRegister(0, 123);
+  const diValues = values.map((value) => Boolean(value));
+  await writeDiscreteInputs(offset, diValues);
+  log("Synced coils -> DI", "offset", offset, "values", diValues);
+});
 
-// 3) Write multiple registers
-// await client.writeHoldingRegisters(10, [11, 22, 33, 44]);
+// Example: seed some coils to see the sync in action
+await writeCoils(0, [true, false, true, true]);
 
-// 4) Read registers and log
-// const values = await client.readHoldingRegisters(0, 8);
-// log("Holding[0..7]", values);
+// setInterval: periodic log
+setInterval(() => {
+  log("Heartbeat", new Date().toLocaleTimeString());
+}, 1000);
 
-// 5) Poll loop template
-// while (true) {
-//   const snapshot = await client.readInputRegisters(0, 4);
-//   log("Input[0..3]", snapshot);
-//   await sleep(1000);
-// }
+// setTimeout: one-shot log
+setTimeout(() => {
+  log("Timeout fired after 3s");
+}, 3000);
 
-// 6) Close connection
-// await client.close();
+// Stop listening when needed
+// stop();

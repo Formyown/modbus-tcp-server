@@ -86,10 +86,10 @@ impl Drop for ConnectionService {
 }
 
 #[derive(Clone, Serialize)]
-struct UpdatePayload {
-    area: DataArea,
-    offset: u16,
-    values: Vec<u16>,
+pub(crate) struct UpdatePayload {
+    pub area: DataArea,
+    pub offset: u16,
+    pub values: Vec<u16>,
 }
 
 impl Service for ConnectionService {
@@ -194,7 +194,7 @@ fn handle_request(
     }
 }
 
-fn emit_update(app: &AppHandle, area: DataArea, offset: u16, values: Vec<u16>) {
+pub(crate) fn emit_update(app: &AppHandle, area: DataArea, offset: u16, values: Vec<u16>) {
     let payload = UpdatePayload {
         area,
         offset,
@@ -268,6 +268,6 @@ fn range(len: usize, addr: u16, qty: u16) -> Result<(usize, usize), ExceptionCod
     Ok((start, end))
 }
 
-fn bools_to_u16(values: &[bool]) -> Vec<u16> {
+pub(crate) fn bools_to_u16(values: &[bool]) -> Vec<u16> {
     values.iter().map(|value| if *value { 1 } else { 0 }).collect()
 }

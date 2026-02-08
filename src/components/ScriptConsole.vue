@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, watch as watchFs, writeTextFile } from "@tauri-apps/plugin-fs";
 import exampleContent from "../assets/examples/modbus_script_example.js?raw";
@@ -7,7 +9,16 @@ import { monaco } from "../lib/monaco";
 
 type ConsoleTab = "script" | "logs";
 
+type DataArea = "coils" | "discrete" | "input" | "holding";
+
+interface UpdatePayload {
+  area: DataArea;
+  offset: number;
+  values: number[];
+}
+
 type WatchStopHandle = () => void;
+type ScriptCleanup = () => void;
 
 const activeTab = ref<ConsoleTab>("script");
 const collapsed = ref(false);
@@ -16,10 +27,12 @@ const DEFAULT_PANEL_HEIGHT = 260;
 const MIN_PANEL_HEIGHT = 180;
 const FALLBACK_WORKSPACE_HEIGHT = 180;
 const COLLAPSED_HEIGHT = 48;
+const MAX_LOG_LINES = 1000;
 const panelHeight = ref(DEFAULT_PANEL_HEIGHT);
 const isResizing = ref(false);
 const editorHost = ref<HTMLElement | null>(null);
 const panelHost = ref<HTMLElement | null>(null);
+const logBox = ref<HTMLElement | null>(null);
 const editor = shallowRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 const scriptContent = ref(exampleContent);
 const lastSavedContent = ref(exampleContent);
@@ -29,6 +42,13 @@ const logs = ref<string[]>([]);
 const externalChangePending = ref(false);
 const externalDiskContent = ref<string | null>(null);
 const isSettingValue = ref(false);
+const isRunning = ref(false);
+const followLogs = ref(true);
+
+const scriptCleanups: ScriptCleanup[] = [];
+let stopResolver: (() => void) | null = null;
+let stopRequested = false;
+let stopController: AbortController | null = null;
 
 let stopWatch: WatchStopHandle | null = null;
 let resizeObserver: ResizeObserver | null = null;
@@ -60,7 +80,382 @@ function basename(path: string) {
 
 function appendLog(message: string) {
   const stamp = new Date().toLocaleTimeString();
-  logs.value = [...logs.value, `[${stamp}] ${message}`];
+  const next = [...logs.value, `[${stamp}] ${message}`];
+  if (next.length > MAX_LOG_LINES) {
+    next.splice(0, next.length - MAX_LOG_LINES);
+  }
+  logs.value = next;
+  scheduleScrollToBottom();
+}
+
+function scheduleScrollToBottom() {
+  if (!followLogs.value) {
+    return;
+  }
+  void nextTick(() => {
+    const host = logBox.value;
+    if (!host) {
+      return;
+    }
+    host.scrollTop = host.scrollHeight;
+  });
+}
+
+function toggleFollowLogs() {
+  followLogs.value = !followLogs.value;
+  if (followLogs.value) {
+    scheduleScrollToBottom();
+  }
+}
+
+async function saveLogs() {
+  if (!logs.value.length) {
+    appendLog("No logs to save.");
+    return;
+  }
+  const selected = await save({
+    defaultPath: "modbus-logs.txt",
+    filters: [{ name: "Logs", extensions: ["txt", "log"] }],
+  });
+  if (!selected) {
+    return;
+  }
+  try {
+    const content = `${logs.value.join("\n")}\n`;
+    await writeTextFile(selected, content);
+    appendLog(`Saved logs to ${selected}`);
+  } catch (error) {
+    console.error(error);
+    appendLog("Failed to save logs.");
+  }
+}
+
+function registerCleanup(cleanup: ScriptCleanup) {
+  scriptCleanups.push(cleanup);
+}
+
+function unregisterCleanup(cleanup: ScriptCleanup) {
+  const index = scriptCleanups.indexOf(cleanup);
+  if (index >= 0) {
+    scriptCleanups.splice(index, 1);
+  }
+}
+
+function clearScriptCleanups() {
+  const cleanups = scriptCleanups.splice(0, scriptCleanups.length);
+  cleanups.forEach((cleanup) => cleanup());
+}
+
+function resolveStop() {
+  if (stopResolver) {
+    stopResolver();
+    stopResolver = null;
+  }
+}
+
+function createStopError() {
+  const error = new Error("Script stopped");
+  error.name = "ScriptStopError";
+  return error;
+}
+
+function isStopError(error: unknown) {
+  return error instanceof Error && error.name === "ScriptStopError";
+}
+
+function formatLogArg(value: unknown) {
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    console.warn("Failed to stringify log value", error);
+    return String(value);
+  }
+}
+
+function logFromScript(...args: unknown[]) {
+  appendLog(args.map(formatLogArg).join(" "));
+}
+
+function runSafeCallback(handler: (...args: unknown[]) => unknown, context: string, args: unknown[]) {
+  try {
+    const result = handler(...args);
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      void (result as Promise<unknown>).catch((error) => {
+        console.error(`${context} failed`, error);
+        appendLog(`${context} error: ${String(error)}`);
+      });
+    }
+  } catch (error) {
+    console.error(`${context} failed`, error);
+    appendLog(`${context} error: ${String(error)}`);
+  }
+}
+
+function normalizeDelay(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, numeric);
+}
+
+function scriptSetTimeout(handler: (...args: unknown[]) => unknown, ms?: number, ...args: unknown[]) {
+  const delay = normalizeDelay(ms);
+  let id = 0;
+  const cleanup: ScriptCleanup = () => {
+    window.clearTimeout(id);
+  };
+  id = window.setTimeout(() => {
+    unregisterCleanup(cleanup);
+    runSafeCallback(handler, "setTimeout", args);
+  }, delay);
+  registerCleanup(cleanup);
+  return id;
+}
+
+function scriptSetInterval(handler: (...args: unknown[]) => unknown, ms?: number, ...args: unknown[]) {
+  const delay = normalizeDelay(ms);
+  let id = 0;
+  const cleanup: ScriptCleanup = () => {
+    window.clearInterval(id);
+  };
+  id = window.setInterval(() => {
+    runSafeCallback(handler, "setInterval", args);
+  }, delay);
+  registerCleanup(cleanup);
+  return id;
+}
+
+function sleep(ms: number) {
+  const delay = Number(ms);
+  return new Promise<void>((resolve, reject) => {
+    const safeDelay = Number.isFinite(delay) ? Math.max(0, delay) : 0;
+    let finished = false;
+    const signal = stopController?.signal ?? null;
+    let abortListener: (() => void) | null = null;
+    const finish = () => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      if (signal && abortListener) {
+        signal.removeEventListener("abort", abortListener);
+      }
+      resolve();
+    };
+    const onAbort = () => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      if (signal && abortListener) {
+        signal.removeEventListener("abort", abortListener);
+      }
+      reject(createStopError());
+    };
+
+    const timerId = window.setTimeout(finish, safeDelay);
+    if (signal) {
+      if (signal.aborted) {
+        window.clearTimeout(timerId);
+        onAbort();
+        return;
+      }
+      abortListener = () => {
+        window.clearTimeout(timerId);
+        onAbort();
+      };
+      signal.addEventListener("abort", abortListener, { once: true });
+    }
+  });
+}
+
+function normalizeRegisterValue(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.min(65535, Math.max(0, Math.round(numeric)));
+}
+
+async function writeAreaValues(
+  area: DataArea,
+  offset: number,
+  valueOrValues: unknown | unknown[],
+  isBitArea: boolean
+) {
+  if (Array.isArray(valueOrValues)) {
+    if (isBitArea) {
+      const payload = valueOrValues.map((value) => Boolean(value));
+      await invoke("register_set_range", {
+        area,
+        offset,
+        values: payload,
+      });
+      return;
+    }
+    const payload = valueOrValues.map((value) => normalizeRegisterValue(value));
+    await invoke("register_set_range", {
+      area,
+      offset,
+      values: payload,
+    });
+    return;
+  }
+
+  if (isBitArea) {
+    await invoke("register_set", {
+      area,
+      offset,
+      value: Boolean(valueOrValues),
+    });
+    return;
+  }
+  await invoke("register_set", {
+    area,
+    offset,
+    value: normalizeRegisterValue(valueOrValues),
+  });
+}
+
+async function writeCoils(offset: number, valueOrValues: unknown | unknown[]) {
+  await writeAreaValues("coils", offset, valueOrValues, true);
+}
+
+async function writeDiscreteInputs(offset: number, valueOrValues: unknown | unknown[]) {
+  await writeAreaValues("discrete", offset, valueOrValues, true);
+}
+
+async function writeHoldingRegs(offset: number, valueOrValues: unknown | unknown[]) {
+  await writeAreaValues("holding", offset, valueOrValues, false);
+}
+
+async function writeInputRegs(offset: number, valueOrValues: unknown | unknown[]) {
+  await writeAreaValues("input", offset, valueOrValues, false);
+}
+
+function onChange(handler: (payload: UpdatePayload) => void) {
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+
+  const stop: ScriptCleanup = () => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    if (unlisten) {
+      unlisten();
+    }
+  };
+
+  registerCleanup(stop);
+  void listen<UpdatePayload>("modbus://updated", (event) => {
+    runSafeCallback(handler, "onChange", [event.payload]);
+  })
+    .then((unlistenFn) => {
+      if (disposed) {
+        unlistenFn();
+        return;
+      }
+      unlisten = unlistenFn;
+    })
+    .catch((error) => {
+      console.error("Failed to listen for updates", error);
+      appendLog("Failed to register onChange listener.");
+    });
+
+  return () => {
+    stop();
+    unregisterCleanup(stop);
+  };
+}
+
+function stopScript() {
+  if (!isRunning.value) {
+    return;
+  }
+  appendLog("Stop requested.");
+  stopRequested = true;
+  stopController?.abort();
+  resolveStop();
+  clearScriptCleanups();
+}
+
+async function runScript() {
+  if (isRunning.value) {
+    appendLog("Script is already running.");
+    return;
+  }
+
+  stopRequested = false;
+  clearScriptCleanups();
+  const content = editor.value ? editor.value.getValue() : scriptContent.value;
+  scriptContent.value = content;
+  stopController = new AbortController();
+  const stopPromise = new Promise<void>((resolve) => {
+    stopResolver = resolve;
+  });
+
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
+    ...args: string[]
+  ) => (...args: unknown[]) => Promise<unknown>;
+  const runner = new AsyncFunction(
+    "writeCoils",
+    "writeDiscreteInputs",
+    "writeHoldingRegs",
+    "writeInputRegs",
+    "onChange",
+    "log",
+    "setTimeout",
+    "setInterval",
+    "sleep",
+    content
+  );
+
+  isRunning.value = true;
+  appendLog("Script started.");
+  let keepAlive = true;
+  try {
+    await runner(
+      writeCoils,
+      writeDiscreteInputs,
+      writeHoldingRegs,
+      writeInputRegs,
+      onChange,
+      logFromScript,
+      scriptSetTimeout,
+      scriptSetInterval,
+      sleep
+    );
+    appendLog("Script finished.");
+  } catch (error) {
+    if (isStopError(error) || stopRequested) {
+      appendLog("Script stopped.");
+    } else {
+      keepAlive = false;
+      console.error("Script execution failed", error);
+      appendLog(`Script error: ${String(error)}`);
+    }
+  } finally {
+    if (keepAlive && !stopRequested) {
+      appendLog("Script idle. Waiting for stop.");
+      try {
+        await stopPromise;
+      } catch (error) {
+        if (!isStopError(error)) {
+          console.warn("Stop wait failed", error);
+        }
+      }
+    }
+    resolveStop();
+    stopController = null;
+    isRunning.value = false;
+    stopRequested = false;
+    clearScriptCleanups();
+  }
 }
 
 function setTab(tab: ConsoleTab) {
@@ -400,6 +795,11 @@ onMounted(() => {
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     fontSize: 12,
+    fixedOverflowWidgets: true,
+    suggestOnTriggerCharacters: true,
+    quickSuggestions: { other: true, comments: false, strings: true },
+    snippetSuggestions: "inline",
+    tabCompletion: "on",
   });
   editor.value = instance;
   instance.onDidChangeModelContent(() => {
@@ -424,6 +824,7 @@ onMounted(() => {
 
 onBeforeUnmount(async () => {
   await stopFileWatch();
+  clearScriptCleanups();
   resizeObserver?.disconnect();
   editor.value?.dispose();
   stopResize();
@@ -468,6 +869,7 @@ onBeforeUnmount(async () => {
         </button>
       </div>
       <div class="console-actions">
+        <span v-if="isRunning" class="console-running-chip">Running / 运行中</span>
         <button
           class="secondary collapse-toggle"
           @click="toggleCollapse"
@@ -537,20 +939,28 @@ onBeforeUnmount(async () => {
             </svg>
             <span>Example</span>
           </button>
-          <button class="primary" aria-label="Run / 运行" title="Run / 运行">
+          <button
+            class="primary script-run"
+            :class="{ danger: isRunning }"
+            :aria-label="isRunning ? 'Stop / 停止' : 'Run / 运行'"
+            :title="isRunning ? 'Stop / 停止' : 'Run / 运行'"
+            @click="isRunning ? stopScript() : runScript()"
+          >
             <svg class="button-icon solid" viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M6 4.5l8.5 5-8.5 5z" />
+              <path v-if="isRunning" d="M5 5h10v10H5z" />
+              <path v-else d="M6 4.5l8.5 5-8.5 5z" />
             </svg>
-            <span>Run / 运行</span>
+            <span>{{ isRunning ? "Stop / 停止" : "Run / 运行" }}</span>
           </button>
         </div>
         <div class="console-hint">
-          Tip: keep reusable control logic here and inspect output in the logs tab.
+          Tip: helpers: writeCoils / writeDiscreteInputs / writeHoldingRegs / writeInputRegs / onChange /
+          log / setTimeout / setInterval / sleep.
         </div>
       </div>
 
       <div v-show="activeTab === 'logs'" class="console-pane">
-        <div class="console-log-box">
+        <div ref="logBox" class="console-log-box">
           <div v-if="!logs.length" class="console-empty">No logs yet.</div>
           <div v-else class="console-log-list">
             <div v-for="(line, index) in logs" :key="index" class="console-log-line">
@@ -559,6 +969,32 @@ onBeforeUnmount(async () => {
           </div>
         </div>
         <div class="console-toolbar">
+          <button
+            class="secondary icon-only"
+            :class="{ active: followLogs }"
+            @click="toggleFollowLogs"
+            aria-label="Follow logs / 跟踪日志"
+            title="Follow logs / 跟踪日志"
+          >
+            <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M10 3v10" />
+              <path d="M6.5 9.5l3.5 3.5 3.5-3.5" />
+              <path d="M4 16.5h12" />
+            </svg>
+          </button>
+          <button
+            class="secondary icon-only"
+            @click="saveLogs"
+            :disabled="!logs.length"
+            aria-label="Save logs / 保存日志"
+            title="Save logs / 保存日志"
+          >
+            <svg class="button-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M5.5 3.5h8l3 3v9.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 15.5V5A1.5 1.5 0 0 1 5.5 3.5z" />
+              <path d="M7 3.5v5h6v-5" />
+              <path d="M7 13h6" />
+            </svg>
+          </button>
           <button
             class="secondary"
             @click="clearLogs"

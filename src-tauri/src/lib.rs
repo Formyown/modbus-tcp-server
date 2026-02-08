@@ -10,7 +10,9 @@ use tokio_modbus::server::tcp::Server;
 
 mod modbus;
 
-use modbus::{ConnectionService, DataArea, ModbusService, ModbusStore, STORE_SIZE};
+use modbus::{
+    bools_to_u16, emit_update, ConnectionService, DataArea, ModbusService, ModbusStore, STORE_SIZE,
+};
 
 #[derive(Clone)]
 struct AppState {
@@ -254,20 +256,31 @@ fn register_set(
         return Err("Offset is out of bounds".to_string());
     }
 
+    let bool_value = value.as_bool();
+    let u16_value = value.as_u16();
+
     match area {
         DataArea::Coils => {
-            store.coils[index] = value.as_bool();
+            store.coils[index] = bool_value;
         }
         DataArea::DiscreteInputs => {
-            store.discrete_inputs[index] = value.as_bool();
+            store.discrete_inputs[index] = bool_value;
         }
         DataArea::InputRegisters => {
-            store.input_registers[index] = value.as_u16();
+            store.input_registers[index] = u16_value;
         }
         DataArea::HoldingRegisters => {
-            store.holding_registers[index] = value.as_u16();
+            store.holding_registers[index] = u16_value;
         }
     }
+
+    let event_value = match area {
+        DataArea::Coils | DataArea::DiscreteInputs => {
+            if bool_value { 1 } else { 0 }
+        }
+        DataArea::InputRegisters | DataArea::HoldingRegisters => u16_value,
+    };
+    emit_update(&state.app, area, offset, vec![event_value]);
 
     Ok(())
 }
@@ -293,6 +306,7 @@ fn register_set_range(
                 return Err("Range is out of bounds".to_string());
             }
             store.coils[start..end].copy_from_slice(&data);
+            emit_update(&state.app, area, offset, bools_to_u16(&data));
         }
         DataArea::DiscreteInputs => {
             let data = values.into_bools();
@@ -301,6 +315,7 @@ fn register_set_range(
                 return Err("Range is out of bounds".to_string());
             }
             store.discrete_inputs[start..end].copy_from_slice(&data);
+            emit_update(&state.app, area, offset, bools_to_u16(&data));
         }
         DataArea::InputRegisters => {
             let data = values.into_u16s();
@@ -309,6 +324,7 @@ fn register_set_range(
                 return Err("Range is out of bounds".to_string());
             }
             store.input_registers[start..end].copy_from_slice(&data);
+            emit_update(&state.app, area, offset, data);
         }
         DataArea::HoldingRegisters => {
             let data = values.into_u16s();
@@ -317,6 +333,7 @@ fn register_set_range(
                 return Err("Range is out of bounds".to_string());
             }
             store.holding_registers[start..end].copy_from_slice(&data);
+            emit_update(&state.app, area, offset, data);
         }
     }
 
