@@ -63,8 +63,6 @@ export const messages: Record<Locale, MessageBundle> = {
     "console.example": "Example",
     "console.stop": "Stop",
     "console.run": "Run",
-    "console.tipHelpers":
-      "Tip: helpers: writeCoils / writeDiscreteInputs / writeHoldingRegs / writeInputRegs / onChange / log / setTimeout / setInterval / sleep.",
     "console.noLogs": "No logs yet.",
     "console.followLogs": "Follow logs",
     "console.saveLogs": "Save logs",
@@ -154,8 +152,6 @@ export const messages: Record<Locale, MessageBundle> = {
     "console.example": "示例",
     "console.stop": "停止",
     "console.run": "运行",
-    "console.tipHelpers":
-      "提示：可用助手：writeCoils / writeDiscreteInputs / writeHoldingRegs / writeInputRegs / onChange / log / setTimeout / setInterval / sleep。",
     "console.noLogs": "暂无日志。",
     "console.followLogs": "跟踪日志",
     "console.saveLogs": "保存日志",

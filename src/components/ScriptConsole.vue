@@ -972,9 +972,6 @@ onBeforeUnmount(async () => {
             <span>{{ isRunning ? t("console.stop") : t("console.run") }}</span>
           </button>
         </div>
-        <div class="console-hint">
-          {{ t("console.tipHelpers") }}
-        </div>
       </div>
 
       <div v-show="activeTab === 'logs'" class="console-pane">
